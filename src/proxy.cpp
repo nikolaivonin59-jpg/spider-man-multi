@@ -43,15 +43,12 @@ static void DrawProbeFigure(IDirect3DDevice9* device)
     D3DVIEWPORT9 vp{};
     if (FAILED(device->GetViewport(&vp)) || vp.Width < 10 || vp.Height < 10) return;
 
-    // Deliberately screen-space diagnostic silhouette. This verifies the D3D9
-    // injection/render hook; it is NOT yet a world-space Spider-Man model.
     const float cx = vp.X + vp.Width * 0.78f;
     const float cy = vp.Y + vp.Height * 0.55f;
     const float s = (float)vp.Height / 720.0f;
     const D3DCOLOR cyan = D3DCOLOR_ARGB(165, 40, 220, 255);
     Vertex v[64]{}; int n = 0;
 
-    // Head: 12-segment circle.
     const float r = 18.0f * s;
     for (int i = 0; i < 12; ++i) {
         float a0 = 6.28318530718f * i / 12.0f;
@@ -59,7 +56,6 @@ static void DrawProbeFigure(IDirect3DDevice9* device)
         AddLine(v, n, cx + cosf(a0) * r, cy - 72.0f*s + sinf(a0)*r,
                       cx + cosf(a1) * r, cy - 72.0f*s + sinf(a1)*r, cyan);
     }
-    // Torso, shoulders, arms, hips and legs.
     AddLine(v,n,cx,cy-53*s,cx,cy+4*s,cyan);
     AddLine(v,n,cx-25*s,cy-42*s,cx+25*s,cy-42*s,cyan);
     AddLine(v,n,cx-25*s,cy-42*s,cx-39*s,cy-5*s,cyan);
@@ -105,42 +101,45 @@ static HRESULT STDMETHODCALLTYPE HookCreateDevice(IDirect3D9* self, UINT adapter
     return hr;
 }
 
-extern "C" __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
-{
-    if (!g_realD3D9) {
-        wchar_t path[MAX_PATH]{};
-        UINT len = GetSystemDirectoryW(path, MAX_PATH);
-        if (len == 0 || len >= MAX_PATH - 12) return nullptr;
-        lstrcatW(path, L"\\d3d9.dll");
-        g_realD3D9 = LoadLibraryW(path);
-        if (!g_realD3D9) return nullptr;
-        g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
-        g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
-    }
-    if (!g_realCreate9) return nullptr;
-    IDirect3D9* d3d = g_realCreate9(sdkVersion);
-    if (d3d) {
-        void** vtable = *reinterpret_cast<void***>(d3d);
-        PatchVTable(vtable, 16, reinterpret_cast<void*>(&HookCreateDevice), reinterpret_cast<void**>(&g_realCreateDevice));
-    }
-    return d3d;
-}
-
-extern "C" __declspec(dllexport) int WINAPI D3DPERF_SetMarker(D3DCOLOR color, LPCWSTR name)
-{
-    if (!g_realD3D9) {
-        wchar_t path[MAX_PATH]{};
-        UINT len = GetSystemDirectoryW(path, MAX_PATH);
-        if (len && len < MAX_PATH - 12) {
+// Экспорт функций с правильной линковкой (без конфликтов созаголовками)
+extern "C" {
+    __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
+    {
+        if (!g_realD3D9) {
+            wchar_t path[MAX_PATH]{};
+            UINT len = GetSystemDirectoryW(path, MAX_PATH);
+            if (len == 0 || len >= MAX_PATH - 12) return nullptr;
             lstrcatW(path, L"\\d3d9.dll");
             g_realD3D9 = LoadLibraryW(path);
-            if (g_realD3D9) {
-                g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
-                g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
+            if (!g_realD3D9) return nullptr;
+            g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
+            g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
+        }
+        if (!g_realCreate9) return nullptr;
+        IDirect3D9* d3d = g_realCreate9(sdkVersion);
+        if (d3d) {
+            void** vtable = *reinterpret_cast<void***>(d3d);
+            PatchVTable(vtable, 16, reinterpret_cast<void*>(&HookCreateDevice), reinterpret_cast<void**>(&g_realCreateDevice));
+        }
+        return d3d;
+    }
+
+    __declspec(dllexport) int WINAPI D3DPERF_SetMarker(D3DCOLOR color, LPCWSTR name)
+    {
+        if (!g_realD3D9) {
+            wchar_t path[MAX_PATH]{};
+            UINT len = GetSystemDirectoryW(path, MAX_PATH);
+            if (len && len < MAX_PATH - 12) {
+                lstrcatW(path, L"\\d3d9.dll");
+                g_realD3D9 = LoadLibraryW(path);
+                if (g_realD3D9) {
+                    g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
+                    g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
+                }
             }
         }
+        return g_realPerfMarker ? g_realPerfMarker(color, name) : 0;
     }
-    return g_realPerfMarker ? g_realPerfMarker(color, name) : 0;
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
