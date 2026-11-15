@@ -7,13 +7,11 @@
 #pragma comment(lib, "d3d9.lib")
 
 using Direct3DCreate9Fn = IDirect3D9* (WINAPI*)(UINT);
-using D3DPERF_SetMarkerFn = int (WINAPI*)(D3DCOLOR, LPCWSTR);
 using CreateDeviceFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
 using EndSceneFn = HRESULT (STDMETHODCALLTYPE*)(IDirect3DDevice9*);
 
 static HMODULE g_realD3D9 = nullptr;
 static Direct3DCreate9Fn g_realCreate9 = nullptr;
-static D3DPERF_SetMarkerFn g_realPerfMarker = nullptr;
 static CreateDeviceFn g_realCreateDevice = nullptr;
 static EndSceneFn g_realEndScene = nullptr;
 static volatile LONG g_hookedDevice = 0;
@@ -101,45 +99,24 @@ static HRESULT STDMETHODCALLTYPE HookCreateDevice(IDirect3D9* self, UINT adapter
     return hr;
 }
 
-// Экспорт функций с правильной линковкой (без конфликтов созаголовками)
-extern "C" {
-    __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
-    {
-        if (!g_realD3D9) {
-            wchar_t path[MAX_PATH]{};
-            UINT len = GetSystemDirectoryW(path, MAX_PATH);
-            if (len == 0 || len >= MAX_PATH - 12) return nullptr;
-            lstrcatW(path, L"\\d3d9.dll");
-            g_realD3D9 = LoadLibraryW(path);
-            if (!g_realD3D9) return nullptr;
-            g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
-            g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
-        }
-        if (!g_realCreate9) return nullptr;
-        IDirect3D9* d3d = g_realCreate9(sdkVersion);
-        if (d3d) {
-            void** vtable = *reinterpret_cast<void***>(d3d);
-            PatchVTable(vtable, 16, reinterpret_cast<void*>(&HookCreateDevice), reinterpret_cast<void**>(&g_realCreateDevice));
-        }
-        return d3d;
+extern "C" __declspec(dllexport) IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
+{
+    if (!g_realD3D9) {
+        wchar_t path[MAX_PATH]{};
+        UINT len = GetSystemDirectoryW(path, MAX_PATH);
+        if (len == 0 || len >= MAX_PATH - 12) return nullptr;
+        lstrcatW(path, L"\\d3d9.dll");
+        g_realD3D9 = LoadLibraryW(path);
+        if (!g_realD3D9) return nullptr;
+        g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
     }
-
-    __declspec(dllexport) int WINAPI D3DPERF_SetMarker(D3DCOLOR color, LPCWSTR name)
-    {
-        if (!g_realD3D9) {
-            wchar_t path[MAX_PATH]{};
-            UINT len = GetSystemDirectoryW(path, MAX_PATH);
-            if (len && len < MAX_PATH - 12) {
-                lstrcatW(path, L"\\d3d9.dll");
-                g_realD3D9 = LoadLibraryW(path);
-                if (g_realD3D9) {
-                    g_realCreate9 = reinterpret_cast<Direct3DCreate9Fn>(GetProcAddress(g_realD3D9, "Direct3DCreate9"));
-                    g_realPerfMarker = reinterpret_cast<D3DPERF_SetMarkerFn>(GetProcAddress(g_realD3D9, "D3DPERF_SetMarker"));
-                }
-            }
-        }
-        return g_realPerfMarker ? g_realPerfMarker(color, name) : 0;
+    if (!g_realCreate9) return nullptr;
+    IDirect3D9* d3d = g_realCreate9(sdkVersion);
+    if (d3d) {
+        void** vtable = *reinterpret_cast<void***>(d3d);
+        PatchVTable(vtable, 16, reinterpret_cast<void*>(&HookCreateDevice), reinterpret_cast<void**>(&g_realCreateDevice));
     }
+    return d3d;
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
