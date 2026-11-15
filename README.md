@@ -1,29 +1,34 @@
-# RADLER Multiplayer Launcher v0.1
+# RADLER D3D9 Probe (x86)
 
-A first Windows launcher prototype for The Amazing Spider-Man 2.
+This is a FIRST GRAPHICS-HOOK TEST for The Amazing Spider-Man 2, not the finished multiplayer mod.
 
-## What this build does
-- Lets you select and launch `Game.exe`.
-- Provides HOST and CLIENT controls.
-- Sends/receives small UDP HELLO/WELCOME messages over a LAN.
-- Displays connection messages in a log.
+## What the uploaded files establish
 
-## Important limitation
-This is **not yet an in-game multiplayer mod**. It does not inject code, read game memory, spawn a second Spider-Man, or synchronize gameplay. It is only the first launcher + LAN transport smoke test.
+- `Game.exe` is PE32/x86 and imports `d3d9.dll` (`Direct3DCreate9`, `D3DPERF_SetMarker`).
+- `Game.exe` loads `Data\\GameLogic.dll` dynamically.
+- `GameLogic.dll` is PE32/x86 and exports `GLGetLogicFn` and `GLInitAPIFn`.
+- `VideoDetection.dll` is a separate PE32/x86 DLL; it imports D3D9/D3DX9 and exports hardware/video helper functions. It is not the game's `d3d9.dll` proxy.
 
-## Build without installing tools on your PC
-1. Create a new empty GitHub repository, e.g. `RADLER-Multiplayer-Launcher`.
-2. Upload all files from this folder, preserving `.github/workflows/build.yml`.
-3. Open the repository's **Actions** tab.
-4. Select **Build RADLER Launcher**, click **Run workflow**.
-5. When it finishes, open the successful run and download the artifact `RADLER-Multiplayer-Launcher-win-x64`.
-6. Extract it and run `RADLER.Launcher.exe` on Windows.
+## What this probe does
 
-## LAN test
-1. Both PCs must be on the same local network.
-2. On the host PC, click **HOST — Create room**.
-3. Find the host PC's IPv4 address with `ipconfig` in Command Prompt.
-4. On the client PC, enter that IPv4 address, keep the same UDP port, and click **CLIENT — Connect**.
-5. If Windows Firewall asks, allow the app on Private networks. If no prompt appears, allow inbound UDP port 27025 for private networks.
+It acts as a local `d3d9.dll` proxy and hooks the Direct3D 9 device `EndScene` call. It draws a translucent stick-figure diagnostic marker in screen space. This checks whether the game accepts a D3D9 proxy and whether drawing can be injected into its frame.
 
-The first version is intentionally minimal. The next stage is researching a safe game integration point for the actual in-game player synchronization.
+**Important:** the marker is not yet a Spider-Man model and is not positioned in world space. It is a deliberate first test before attempting to hook the game's camera/world matrices and spawn or render a real mesh. No game memory is modified by this first test.
+
+## Build
+
+Extract the ZIP contents directly into the root of your existing RADLER GitHub repository. The workflow has a unique filename (`build-d3d9-probe.yml`) and will not overwrite your current launcher workflow. GitHub Actions builds an x86 DLL on Windows. Artifact name: `RADLER-D3D9-Probe-x86`.
+
+## Test (after building)
+
+1. Back up the original game folder.
+2. Confirm there is no existing `d3d9.dll` in the game root. Do not overwrite an existing mod/proxy.
+3. Copy the built DLL into the same directory as `Game.exe` and rename it to `d3d9.dll`.
+4. Launch the game. If it starts, look for a translucent cyan stick figure near the right side of the screen.
+5. If the game fails to start or the marker does not appear, remove the proxy DLL; the original game files remain untouched.
+
+The proxy currently forwards the two D3D9 exports observed in the uploaded `Game.exe`. If another module requires additional D3D9 exports, the proxy must be extended before use.
+
+## Next milestone
+
+After confirming the hook, replace the screen-space marker with a real world-space render path. That requires reverse-engineering the game's camera matrices, object/model resource format and render timing in `Data\\GameLogic.dll`; the current files do not yet establish a safe spawn function or a ready-to-use Spider-Man mesh API.
