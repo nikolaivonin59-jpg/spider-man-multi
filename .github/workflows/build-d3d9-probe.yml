@@ -1,0 +1,23 @@
+name: Build RADLER D3D9 Probe
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**.cpp'
+      - '**.vcxproj'
+      - '**.def'
+      - '.github/workflows/build.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build x86 DLL
+        shell: pwsh
+        run: msbuild RADLER.D3D9Probe.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: RADLER-D3D9-Probe-x86
+          path: Release/RADLER.D3D9Probe.dll
